@@ -26,7 +26,48 @@ object project2 {
   var topology:String = null
   var b:Long = 0
 
+  var minRumourCount = 0
+  var heartBeat : FiniteDuration = 0 milliseconds
+
   var nodeNeighbours : mutable.HashMap[Int, ArrayBuffer[ActorRef]] = null
+
+  // Main Method
+  def main (args: Array[String]) {
+    // Get the Number of Nodes
+    numOfNodes = args(0).toInt
+    topology = args(1)
+
+    minRumourCount = 10
+    heartBeat = 5 milliseconds
+
+    topology match  {
+      case "full" =>
+        Nodes = new Array[ActorRef](numOfNodes)
+
+      case "3D" =>
+        // Change the Number of Nodes Accordingly
+        cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
+        cubeArea = math.pow(cubeSide,2).toInt
+        numOfNodes = math.pow(cubeSide,3).toInt
+        Nodes = new Array[ActorRef](numOfNodes)
+
+      case "line" =>
+        Nodes = new Array[ActorRef](numOfNodes)
+
+      case "imp3D" =>
+        cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
+        cubeArea = math.pow(cubeSide,2).toInt
+        numOfNodes = math.pow(cubeSide,3).toInt
+        Nodes = new Array[ActorRef](numOfNodes)
+    }
+
+    // Get the Algorithm and run it on the above mentioned topology
+    args(2) match  {
+      case "gossip" => runGossip()
+
+      case "push-sum" => runPushSum()
+    }
+  }
 
   // Listener Actor to Determine if all actors terminated
   // The Listener Actor
@@ -99,7 +140,7 @@ object project2 {
           // Send the Message it Heard Once
           listener ! heardOnce
           import context.dispatcher
-          cancel = context.system.scheduler.schedule(0 milliseconds, 5 milliseconds, self, Tick)
+          cancel = context.system.scheduler.schedule(0 milliseconds, heartBeat, self, Tick)
           firstMessage = false
         }
 
@@ -110,7 +151,7 @@ object project2 {
           returnNextNode(NodeIndex) ! dumbGossip
         }
 
-        if (rumourReceived == 10) {
+        if (rumourReceived == minRumourCount) {
           // Terminate this Actor
           terminate = true
           // Cancel the Schedule
@@ -138,7 +179,7 @@ object project2 {
       case smartGossip(sR, wR) =>
         if(firstMessage){
           import context.dispatcher
-          context.system.scheduler.schedule(0 milliseconds, 3 milliseconds, self, Tick)
+          context.system.scheduler.schedule(0 milliseconds, heartBeat, self, Tick)
           firstMessage = false
         }
         // Add the values to the present values , keep the half and send half
@@ -173,41 +214,6 @@ object project2 {
         w = wHalf
         returnNextNode(NodeIndex) ! smartGossip(sHalf, wHalf)
     }
-  }
-
-  // Main Method
-  def main (args: Array[String]) {
-      // Get the Number of Nodes
-      numOfNodes = args(0).toInt
-      topology = args(1)
-
-      topology match  {
-        case "full" =>
-          Nodes = new Array[ActorRef](numOfNodes)
-
-        case "3D" =>
-          // Change the Number of Nodes Accordingly
-          cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
-          cubeArea = math.pow(cubeSide,2).toInt
-          numOfNodes = math.pow(cubeSide,3).toInt
-          Nodes = new Array[ActorRef](numOfNodes)
-
-        case "line" =>
-          Nodes = new Array[ActorRef](numOfNodes)
-
-        case "imp3D" =>
-          cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
-          cubeArea = math.pow(cubeSide,2).toInt
-          numOfNodes = math.pow(cubeSide,3).toInt
-          Nodes = new Array[ActorRef](numOfNodes)
-      }
-
-      // Get the Algorithm and run it on the above mentioned topology
-      args(2) match  {
-        case "gossip" => runGossip()
-
-        case "push-sum" => runPushSum()
-      }
   }
 
   // Build Neighbours
