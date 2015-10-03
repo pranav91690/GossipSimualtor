@@ -1,4 +1,5 @@
-import akka.actor.{Props, ActorSystem, ActorRef, Actor}
+import akka.actor._
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration._
 import scala.util.Random
@@ -14,36 +15,70 @@ object project2 {
   // Tick Object
   case object Tick
   // Message to Notify that the node has heard the rumour Enough Times
-  case object heardEnough
+  case object converged
+  // Gossip
+  case object heardEnoughDumb
+  // Message to Indicate the node heard the rumour once
+  case object heardOnce
 
-  var neighbours:Array[ActorRef] = null
+  var Nodes:Array[ActorRef] = null
   var numOfNodes:Int = 0
   var cubeArea:Int = 0
   var cubeSide:Int = 0
   var topology:String = null
-  var terminatedActors:Int = 0
   var b:Long = 0
 
+  var nodeNeighbours : mutable.HashMap[Int, ArrayBuffer[ActorRef]] = null
 
   // Listener Actor to Determine if all actors terminated
   // The Listener Actor
   class Listener extends Actor {
+    var satisfiedNodes = 0
     def receive = {
-      case `heardEnough` =>
-        terminatedActors += 1
-
-        if(terminatedActors == numOfNodes) {
+      case `converged` =>
+        satisfiedNodes += 1
+        if (satisfiedNodes == numOfNodes) {
           println("Total Time : " + (System.currentTimeMillis() - b) + " millisecs")
-          for(i <- neighbours.indices){
-            context.system.stop(neighbours(i))
-          }
-
-          // Sleep for Some time
-          Thread.sleep(100)
-          // ShutDown the System
           println("Shutting Down the System")
           context.system.shutdown()
         }
+
+      case `heardOnce` =>
+        satisfiedNodes += 1
+        if(satisfiedNodes == numOfNodes){
+          println("Total Time : " + (System.currentTimeMillis() - b) + " millisecs")
+          println("Shutting Down the System")
+          context.system.shutdown()
+        }
+    }
+  }
+
+  def returnNextNode(index : Int) : ActorRef = {
+    topology match {
+      case "full" =>
+        // Get a Next Node, Check if it's same node
+        var next = returnRandomNode()
+        while (next == index){
+          next = returnRandomNode()
+        }
+        Nodes(next)
+      case "line" =>
+        val random = new Random()
+        val List = nodeNeighbours(index)
+        List(random.nextInt(List.size))
+      case "3D" =>
+        val random = new Random()
+        val List = nodeNeighbours(index)
+        List(random.nextInt(List.size))
+      case "imp3D" =>
+        val random = new Random()
+        val List = nodeNeighbours(index)
+        var next = returnRandomNode()
+        while (next == index){
+          next = returnRandomNode()
+        }
+        List.append(Nodes(next))
+        List(random.nextInt(List.size))
     }
   }
 
@@ -53,202 +88,95 @@ object project2 {
     var rumourReceived = 0
     // Node Index
     val NodeIndex = index
+    // Flag to notify if the node is receiving the message for the first time
+    var firstMessage = true
+    // Flag to to stop the Node if it has heard the Rumour "some" times
+    var terminate = false
+    // Variable to Store the cancellable object from the Scheduler
+    var cancel:Cancellable = null
 
     def receive = {
       case `dumbGossip` =>
+        if(firstMessage){
+          // Send the Message it Heard Once
+          listener ! heardOnce
+          import context.dispatcher
+          cancel = context.system.scheduler.schedule(0 milliseconds, 5 milliseconds, self, Tick)
+          firstMessage = false
+        }
+
         rumourReceived += 1 // Increase the Count
 
         // Get the Next Actor
-        returnActorIndex(NodeIndex) ! dumbGossip
-
-        // TODO
-        // Start a Scheduler the First Time the Node receives a Message
-//        import context.dispatcher
-//        if(rumourReceived == 1) {
-//          context.system.scheduler.schedule(0 milliseconds, 100 milliseconds, self, Tick)
-//        }
+        if(!terminate) {
+          returnNextNode(NodeIndex) ! dumbGossip
+        }
 
         if (rumourReceived == 10) {
           // Terminate this Actor
-          listener ! heardEnough
+          terminate = true
+          // Cancel the Schedule
+          cancel.cancel()
         }
 
-        // TODO
-//      case `Tick` =>
-//        // Get the index of the Next Actor to send the rumour to and send the message
-//        val nextActor = returnActorIndex(NodeIndex)
-//        neighbours(nextActor) ! dumbGossip
+      case `Tick` =>
+        // Get the index of the Next Actor to send the rumour to and send the message
+        if(!terminate) {
+          returnNextNode(NodeIndex) ! dumbGossip
+        }
     }
   }
 
   // The Smart Gossip Monger Actor
   class SmartGossipMonger(index:Int, listener: ActorRef) extends Actor {
-    var s:Float = 0
-    var w:Float = 0
+    var s:Float = index + 1
+    var w:Float = 1
     var sumEstimate:Float = 0
     var streak = 0
-
-    // Node Index
+    var firstMessage = true
     val NodeIndex = index
 
     def receive = {
       case smartGossip(sR, wR) =>
-
-        // Keep half of the received value and send the other half
+        if(firstMessage){
+          import context.dispatcher
+          context.system.scheduler.schedule(0 milliseconds, 3 milliseconds, self, Tick)
+          firstMessage = false
+        }
+        // Add the values to the present values , keep the half and send half
         val oldSumEstimate = sumEstimate
-        s = s + sR / 2
-        w = w + wR / 2
+        s = s + sR
+        w = w + wR
+        val sHalf = s/2
+        val wHalf = w/2
+        s = sHalf
+        w = wHalf
         sumEstimate = s / w
         val difference = math.abs(sumEstimate - oldSumEstimate)
-        if (difference <= math.pow(10, -1)) {
+        if (difference <= math.pow(10, -10)) {
           streak += 1
         } else {
           streak = 0
         }
 
         // Send to Next Actor
-        returnActorIndex(NodeIndex) ! smartGossip(sR/2, wR/2)
+        returnNextNode(NodeIndex) ! smartGossip(sHalf, wHalf)
 
         // Terminate this Actor, Based on the ratio s/w
         if(streak == 3) {
-          listener ! heardEnough
+          listener ! converged
         }
 
+      case `Tick` =>
+        // Get the index of the Next Actor to send the rumour to and send the message
+        val sHalf = s/2
+        val wHalf = w/2
+        s = sHalf
+        w = wHalf
+        returnNextNode(NodeIndex) ! smartGossip(sHalf, wHalf)
     }
   }
 
-  def returnActorIndex(index : Int) : ActorRef = {
-    // Return Index Based on the Topology
-    topology match {
-      case "full" =>
-        // In this Toplogy, select any actor send it the message
-        val random = new Random()
-        var notSameActor: Boolean = false
-        var randomIndex = 0
-        while (!notSameActor) {
-          randomIndex = random.nextInt(numOfNodes)
-          if (randomIndex != index) {
-            notSameActor = true
-          }
-        }
-
-        neighbours(randomIndex)
-
-      case "3D" =>
-        // Declare A Mutable ArrayBuffer
-        val List = new ArrayBuffer[ActorRef]()
-        // Based on the Cube Side, find the Neighbours
-        // West Neighbour
-        if (index % cubeSide != 0) {
-          List.append(neighbours(index - 1))
-        }
-        // East Neighbour
-        if (index % cubeSide != cubeSide - 1) {
-          List.append(neighbours(index + 1))
-        }
-        // South Neighbour
-        if (index % cubeArea >= cubeSide) {
-          List.append(neighbours(index - cubeSide))
-        }
-        // North Neighbour
-        if (index % cubeArea < (cubeSide - 1) * cubeSide) {
-          List.append(neighbours(index + cubeSide))
-        }
-        // Bottom Neighbour
-        if (index >= cubeArea) {
-          List.append(neighbours(index - cubeArea))
-        }
-        // Top Neighbour
-        if (index < (cubeSide - 1) * cubeArea) {
-          List.append(neighbours(index + cubeArea))
-        }
-
-        // Select a Random Actor from list of neighbours and send the Message
-        val random = new Random()
-        val randomIndex = random.nextInt(List.size)
-
-        List(randomIndex)
-
-      case "line" =>
-        //In this Topology, only the left and right elements are neighbours
-        if ((index == 0) || (index == numOfNodes - 1)) {
-          if (index == 0) {
-            neighbours(1)
-          } else {
-            neighbours(numOfNodes - 2)
-          }
-        } else {
-          val List = new Array[ActorRef](2)
-          List(0) = neighbours(index - 1)
-          List(1) = neighbours(index + 1)
-          val random = new Random()
-          val randomIndex = random.nextInt(2)
-          List(randomIndex)
-        }
-
-      case "imp3D" =>
-        // Declare A Mutable ArrayBuffer
-        val List = new ArrayBuffer[ActorRef]()
-        val n = new ArrayBuffer[Int]()
-        // Based on the Cube Side, find the Neighbours
-        // West Neighbour
-        val west = index - 1
-        if (index % cubeSide != 0) {
-          List.append(neighbours(west))
-          n.append(west)
-        }
-        // East Neighbour
-        val east = index + 1
-        if (index % cubeSide != cubeSide - 1) {
-          List.append(neighbours(east))
-          n.append(east)
-        }
-        // South Neighbour
-        val south = index - cubeSide
-        if (index % cubeArea >= cubeSide) {
-          List.append(neighbours(south))
-          n.append(south)
-        }
-        // North Neighbour
-        val north = index + cubeSide
-        if (index % cubeArea < (cubeSide - 1) * cubeSide) {
-          List.append(neighbours(north))
-          n.append(north)
-        }
-        // Bottom Neighbour
-        val bottom = index - cubeArea
-        if (index >= cubeArea) {
-          List.append(neighbours(bottom))
-          n.append(bottom)
-        }
-        // Top Neighbour
-        val top = index + cubeArea
-        if (index < (cubeSide - 1) * cubeArea) {
-          List.append(neighbours(top))
-          n.append(top)
-        }
-
-        n.append(index)
-
-        // Random Neighbour
-        val random2 = new Random()
-        var notSameActor: Boolean = false
-        var randomIndex2: Int = 0
-        while (!notSameActor) {
-          randomIndex2 = random2.nextInt(numOfNodes)
-          // If this index is not already seen
-          if (!n.contains(randomIndex2)) {
-            notSameActor = true
-          }
-        }
-        List.append(neighbours(randomIndex2))
-
-        // Select a Random Actor from list of neighbours and send the Message
-        val random = new Random()
-        val randomIndex = random.nextInt(List.size)
-        List(randomIndex)
-    }
-  }
   // Main Method
   def main (args: Array[String]) {
       // Get the Number of Nodes
@@ -257,23 +185,23 @@ object project2 {
 
       topology match  {
         case "full" =>
-          neighbours = new Array[ActorRef](numOfNodes)
+          Nodes = new Array[ActorRef](numOfNodes)
 
         case "3D" =>
           // Change the Number of Nodes Accordingly
           cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
           cubeArea = math.pow(cubeSide,2).toInt
           numOfNodes = math.pow(cubeSide,3).toInt
-          neighbours = new Array[ActorRef](numOfNodes)
+          Nodes = new Array[ActorRef](numOfNodes)
 
         case "line" =>
-          neighbours = new Array[ActorRef](numOfNodes)
+          Nodes = new Array[ActorRef](numOfNodes)
 
         case "imp3D" =>
           cubeSide = math.ceil(math.cbrt(numOfNodes)).toInt
           cubeArea = math.pow(cubeSide,2).toInt
           numOfNodes = math.pow(cubeSide,3).toInt
-          neighbours = new Array[ActorRef](numOfNodes)
+          Nodes = new Array[ActorRef](numOfNodes)
       }
 
       // Get the Algorithm and run it on the above mentioned topology
@@ -284,8 +212,75 @@ object project2 {
       }
   }
 
+  // Build Neighbours
+  def buildNeighbours(): Unit = {
+    topology match  {
+      case "full" =>
+
+      case "3D" =>
+        build3D()
+
+      case "line" =>
+        //In this Topology, only the left and right elements are neighbours
+        for(index <- Nodes.indices) {
+          val List = new ArrayBuffer[ActorRef]()
+          if ((index == 0) || (index == numOfNodes - 1)) {
+            if (index == 0) {
+              List.append(Nodes(1))
+            } else {
+              List.append(Nodes(numOfNodes - 2))
+            }
+          } else {
+            List.append(Nodes(index - 1))
+            List.append(Nodes(index + 1))
+          }
+
+          nodeNeighbours(index) = List
+        }
+
+      case "imp3D" =>
+        build3D()
+    }
+  }
+
+  def build3D(): Unit ={
+    // Build the Neighbours List for Each Node
+    // Declare A Mutable ArrayBuffer
+    for(index <- Nodes.indices) {
+      val List = new ArrayBuffer[ActorRef]()
+      // Based on the Cube Side, find the Neighbours
+      // West Neighbour
+      if (index % cubeSide != 0) {
+        List.append(Nodes(index - 1))
+      }
+      // East Neighbour
+      if (index % cubeSide != cubeSide - 1) {
+        List.append(Nodes(index + 1))
+      }
+      // South Neighbour
+      if (index % cubeArea >= cubeSide) {
+        List.append(Nodes(index - cubeSide))
+      }
+      // North Neighbour
+      if (index % cubeArea < (cubeSide - 1) * cubeSide) {
+        List.append(Nodes(index + cubeSide))
+      }
+      // Bottom Neighbour
+      if (index >= cubeArea) {
+        List.append(Nodes(index - cubeArea))
+      }
+      // Top Neighbour
+      if (index < (cubeSide - 1) * cubeArea) {
+        List.append(Nodes(index + cubeArea))
+      }
+
+      nodeNeighbours(index) = List
+    }
+  }
+
+
   // Gossip Algo Logic
-  def runGossip()  = {
+  def runGossip() = {
     // Start the Actor System and Instantiate the Actors
     val system = ActorSystem("GossipManager")
 
@@ -294,16 +289,22 @@ object project2 {
 
     for(i <- 0 until numOfNodes){
       // Create the Actor
-      neighbours(i) = system.actorOf(Props(new DumbGossipMonger(i, listener)))
+      Nodes(i) = system.actorOf(Props(new DumbGossipMonger(i, listener)))
     }
 
+    nodeNeighbours = new mutable.HashMap[Int, ArrayBuffer[ActorRef]]
+
+    // Build the Node Neighbours
+    buildNeighbours()
+
     // Randomly Select one Actor and Start the Gossip
-    val random = new Random()
-    val randomIndex = random.nextInt(numOfNodes)
+//    val random = new Random()
+//    val randomIndex = random.nextInt(numOfNodes)
+    val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
     println("Started Gossip")
     b = System.currentTimeMillis()
-    neighbours(randomIndex) ! dumbGossip
+    Nodes(randomIndex) ! dumbGossip
   }
 
   // Push Sum Logic
@@ -315,15 +316,28 @@ object project2 {
     val listener = system.actorOf(Props[Listener], name = "listener")
 
     for(i <- 0 until numOfNodes){
-      neighbours(i) = system.actorOf(Props(new SmartGossipMonger(i, listener)))
+      Nodes(i) = system.actorOf(Props(new SmartGossipMonger(i, listener)))
     }
 
+    nodeNeighbours = new mutable.HashMap[Int, ArrayBuffer[ActorRef]]
+
+
+    // Build the Node Neighbours
+    buildNeighbours()
+
     // Randomly Select one Actor and Start the Gossip
-    val random = new Random()
-    val randomIndex = random.nextInt(numOfNodes)
+//    val random = new Random()
+//    val randomIndex = random.nextInt(numOfNodes)
+    val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
     println("Started PushSum")
     b = System.currentTimeMillis()
-    neighbours(randomIndex) ! smartGossip(randomIndex + 1, 1)
+    Nodes(randomIndex) ! smartGossip(randomIndex + 1, 1)
+  }
+
+  def returnRandomNode() : Int = {
+    val random = new Random()
+    val randomIndex = random.nextInt(numOfNodes)
+    randomIndex
   }
 }
