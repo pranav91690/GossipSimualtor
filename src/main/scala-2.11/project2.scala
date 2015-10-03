@@ -16,8 +16,6 @@ object project2 {
   case object Tick
   // Message to Notify that the node has heard the rumour Enough Times
   case object converged
-  // Gossip
-  case object heardEnoughDumb
   // Message to Indicate the node heard the rumour once
   case object heardOnce
 
@@ -298,8 +296,6 @@ object project2 {
     buildNeighbours()
 
     // Randomly Select one Actor and Start the Gossip
-//    val random = new Random()
-//    val randomIndex = random.nextInt(numOfNodes)
     val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
     println("Started Gossip")
@@ -326,8 +322,6 @@ object project2 {
     buildNeighbours()
 
     // Randomly Select one Actor and Start the Gossip
-//    val random = new Random()
-//    val randomIndex = random.nextInt(numOfNodes)
     val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
     println("Started PushSum")
