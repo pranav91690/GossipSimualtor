@@ -73,13 +73,17 @@ object project2{
   // The Listener Actor
   class Listener extends Actor {
     var satisfiedNodes = 0
+    var oldRatio:Double = 0.0
+    var hasConverged = false
     def receive = {
       case converged(ratio) =>
         satisfiedNodes += 1
-        if (satisfiedNodes == numOfNodes) {
+        if((math.abs(ratio - oldRatio) <= math.pow(10, -10) && !hasConverged) || satisfiedNodes == numOfNodes) {
           println(numOfNodes + "," + (System.currentTimeMillis() - b) + "," + ratio)
+          hasConverged = true
           context.system.shutdown()
         }
+        oldRatio = ratio
 
       case `heardOnce` =>
         satisfiedNodes += 1
@@ -172,6 +176,7 @@ object project2{
     var streak = 0
     var firstMessage = true
     val NodeIndex = index
+    var hasConverged = false
     // Variable to Store the cancellable object from the Scheduler
     var cancel:Cancellable = null
 
@@ -203,9 +208,10 @@ object project2{
         returnNextNode(NodeIndex) ! smartGossip(sHalf, wHalf)
 
         // Terminate this Actor, Based on the ratio s/w
-        if(streak == 3) {
+        if(streak == 3 && !hasConverged) {
           listener ! converged(sumEstimate)
           cancel.cancel()
+          hasConverged = true
         }
 
       case `Tick` =>
