@@ -15,7 +15,7 @@ object project2{
   // Tick Object
   case object Tick
   // Message to Notify that the node has heard the rumour Enough Times
-  case object converged
+  case class converged(ratio : Double)
   // Message to Indicate the node heard the rumour once
   case object heardOnce
 
@@ -38,7 +38,7 @@ object project2{
     topology = args(1)
 
     minRumourCount = 10
-    heartBeat = 5 milliseconds
+    heartBeat = 10 milliseconds
 
     topology match  {
       case "full" =>
@@ -74,10 +74,10 @@ object project2{
   class Listener extends Actor {
     var satisfiedNodes = 0
     def receive = {
-      case `converged` =>
+      case converged(ratio) =>
         satisfiedNodes += 1
         if (satisfiedNodes == numOfNodes) {
-          println(numOfNodes + "," + (System.currentTimeMillis() - b))
+          println(numOfNodes + "," + (System.currentTimeMillis() - b) + "," + ratio)
           context.system.shutdown()
         }
 
@@ -168,16 +168,18 @@ object project2{
   class SmartGossipMonger(index:Int, listener: ActorRef) extends Actor {
     var s:Float = index + 1
     var w:Float = 1
-    var sumEstimate:Float = 0
+    var sumEstimate:Double = 0
     var streak = 0
     var firstMessage = true
     val NodeIndex = index
+    // Variable to Store the cancellable object from the Scheduler
+    var cancel:Cancellable = null
 
     def receive = {
       case smartGossip(sR, wR) =>
         if(firstMessage){
           import context.dispatcher
-          context.system.scheduler.schedule(0 milliseconds, heartBeat, self, Tick)
+          cancel = context.system.scheduler.schedule(0 milliseconds, heartBeat, self, Tick)
           firstMessage = false
         }
         // Add the values to the present values , keep the half and send half
@@ -186,6 +188,7 @@ object project2{
         w = w + wR
         val sHalf = s/2
         val wHalf = w/2
+        // Keep Half
         s = sHalf
         w = wHalf
         sumEstimate = s / w
@@ -201,16 +204,13 @@ object project2{
 
         // Terminate this Actor, Based on the ratio s/w
         if(streak == 3) {
-          listener ! converged
+          listener ! converged(sumEstimate)
+          cancel.cancel()
         }
 
       case `Tick` =>
-        // Get the index of the Next Actor to send the rumour to and send the message
-        val sHalf = s/2
-        val wHalf = w/2
-        s = sHalf
-        w = wHalf
-        returnNextNode(NodeIndex) ! smartGossip(sHalf, wHalf)
+        // Repeat the Process
+        self ! smartGossip(s, w)
     }
   }
 
