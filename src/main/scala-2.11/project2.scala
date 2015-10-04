@@ -77,14 +77,14 @@ object project2{
       case `converged` =>
         satisfiedNodes += 1
         if (satisfiedNodes == numOfNodes) {
-          println((numOfNodes, System.currentTimeMillis() - b))
+          println(numOfNodes + "," + (System.currentTimeMillis() - b))
           context.system.shutdown()
         }
 
       case `heardOnce` =>
         satisfiedNodes += 1
         if(satisfiedNodes == numOfNodes){
-          println((numOfNodes, System.currentTimeMillis() - b))
+          println(numOfNodes + "," + (System.currentTimeMillis() - b))
           context.system.shutdown()
         }
     }
