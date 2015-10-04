@@ -7,7 +7,7 @@ import scala.util.Random
 /**
  * Created by pranav on 9/22/15.
  */
-object project2 {
+object project2{
   // Message to Distribute the Message
   case class smartGossip(s:Float, w:Float)
   // Message to Distribute the Message
@@ -77,16 +77,14 @@ object project2 {
       case `converged` =>
         satisfiedNodes += 1
         if (satisfiedNodes == numOfNodes) {
-          println("Total Time : " + (System.currentTimeMillis() - b) + " millisecs")
-          println("Shutting Down the System")
+          println((numOfNodes, System.currentTimeMillis() - b))
           context.system.shutdown()
         }
 
       case `heardOnce` =>
         satisfiedNodes += 1
         if(satisfiedNodes == numOfNodes){
-          println("Total Time : " + (System.currentTimeMillis() - b) + " millisecs")
-          println("Shutting Down the System")
+          println((numOfNodes, System.currentTimeMillis() - b))
           context.system.shutdown()
         }
     }
@@ -304,7 +302,6 @@ object project2 {
     // Randomly Select one Actor and Start the Gossip
     val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
-    println("Started Gossip")
     b = System.currentTimeMillis()
     Nodes(randomIndex) ! dumbGossip
   }
@@ -330,7 +327,6 @@ object project2 {
     // Randomly Select one Actor and Start the Gossip
     val randomIndex = returnRandomNode()
     // Using the Random Index, send the Start Gossip Message to that Actor
-    println("Started PushSum")
     b = System.currentTimeMillis()
     Nodes(randomIndex) ! smartGossip(randomIndex + 1, 1)
   }
