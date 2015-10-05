@@ -38,7 +38,7 @@ object project2{
     topology = args(1)
 
     minRumourCount = 10
-    heartBeat = 10 milliseconds
+    heartBeat = 2 milliseconds
 
     topology match  {
       case "full" =>
@@ -78,12 +78,21 @@ object project2{
     def receive = {
       case converged(ratio) =>
         satisfiedNodes += 1
-        if((math.abs(ratio - oldRatio) <= math.pow(10, -10) && !hasConverged) || satisfiedNodes == numOfNodes) {
-          println(numOfNodes + "," + (System.currentTimeMillis() - b) + "," + ratio)
-          hasConverged = true
-          context.system.shutdown()
+        if(topology != "line") {
+          if ((math.abs(ratio - oldRatio) <= math.pow(10, -10) && !hasConverged) || satisfiedNodes == numOfNodes) {
+            println(numOfNodes + "," + (System.currentTimeMillis() - b) + "," + ratio)
+            hasConverged = true
+            context.system.shutdown()
+          }
+          oldRatio = ratio
+        }else{
+          println(ratio)
+          if(satisfiedNodes == numOfNodes) {
+            println(numOfNodes + "," + (System.currentTimeMillis() - b) + "," + ratio)
+            hasConverged = true
+            context.system.shutdown()
+          }
         }
-        oldRatio = ratio
 
       case `heardOnce` =>
         satisfiedNodes += 1
